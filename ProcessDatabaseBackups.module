@@ -12,7 +12,7 @@
  *
  */
 
-class ProcessDatabaseBackups extends Process {
+class ProcessDatabaseBackups extends Process implements ConfigurableModule {
 
 	/**
 	 * Minimum required version for this module
@@ -149,7 +149,15 @@ class ProcessDatabaseBackups extends Process {
 			),
 		);
 
-		if(!class_exists("\\ZipArchive")) unset($actions['downloadZIP']);
+		// RPS mod
+		if($this->enableZipFeatures) {
+			if(substr($file['pathname'], -4) === '.zip') {
+				unset($actions['download']);
+				$actions['downloadZIP']['href'] = $url . "download/?id=$file[id]";
+			}
+		} else {
+			if(!class_exists("\\ZipArchive")) unset($actions['downloadZIP']);
+		}
 		
 		return $actions;
 	}
@@ -181,6 +189,24 @@ class ProcessDatabaseBackups extends Process {
 	}
 
 	/**
+	 * RPS mod
+	 * Get backup info from a ZIP file comment
+	 *
+	 * @param string $file
+	 * @return array|bool
+	 */
+	public function getZipInfo($file) {
+		$za = new \ZipArchive;
+		$res = $za->open($file);
+		if($res === true) {
+			$backupInfo = json_decode($za->getArchiveComment(), true);
+			$za->close();
+			return $backupInfo;
+		}
+		return false;
+	}
+
+	/**
 	 * This function is executed when a page with your Process assigned is accessed. 
  	 *
 	 * This can be seen as your main or index function. You'll probably want to replace
@@ -194,6 +220,20 @@ class ProcessDatabaseBackups extends Process {
 		$input = $this->wire()->input;
 		$numFiles = 0;
 		$backupFiles = $this->getBackupFiles();
+
+		// RPS mod
+		// If ZIP features are enabled, get needed cell values from ZIP comment
+		if($this->enableZipFeatures) {
+			foreach($backupFiles as $id => $file) {
+				if(substr($file['pathname'], -4) !== '.zip') continue;
+				$backupInfo = $this->getZipInfo($file['pathname']);
+				if(is_array($backupInfo)) {
+					$backupFiles[$id]['tables'] = $backupInfo['tables'];
+					$backupFiles[$id]['numInserts'] = $backupInfo['numInserts'];
+					$backupFiles[$id]['numTables'] = $backupInfo['numTables'];
+				}
+			}
+		}
 		
 		$this->headline($this->labels['module-title']); 
 		
@@ -352,8 +392,22 @@ class ProcessDatabaseBackups extends Process {
 
 		$file = $this->getFile();
 		$this->headline($file['basename']); 
-	
-		$info = $this->backup->getFileInfo($file['pathname']); 
+
+		// RPS mod
+		// If ZIP features are enabled, get backup info from ZIP comment
+		if($this->enableZipFeatures && substr($file['pathname'], -4) === '.zip') {
+			$info = $this->getZipInfo($file['pathname']);
+			if(is_array($info)) {
+				// Unset values that relate to the SQL file
+				unset($info['size']);
+				unset($info['basename']);
+				unset($info['pathname']);
+			} else {
+				$info = array();
+			}
+		} else {
+			$info = $this->backup->getFileInfo($file['pathname']);
+		}
 		$info = array_merge($file, $info); 
 
 		if($info['valid']) {
@@ -528,7 +582,44 @@ class ProcessDatabaseBackups extends Process {
 		}
 
 		$file = $this->backup->backup($options);
-		if($file) $this->message($this->_('Saved new backup:') . " $file"); 
+		if($file) {
+			// RPS mod
+			// If ZIP features are enabled, create ZIP file with backup info as a ZIP comment
+			if($this->enableZipFeatures) {
+				$this->zipBackup($file);
+			} else {
+				$this->message($this->_('Saved new backup:') . " $file");
+			}
+		}
+	}
+
+	/**
+	 * RPS mod
+	 * Create a ZIP file from an SQL backup file and add backup info as a ZIP comment
+	 *
+	 * @param string $file
+	 * @return false|string
+	 */
+	public function zipBackup($file) {
+		$backupInfo = $this->backup->getFileInfo($file);
+		$zip = substr($file, 0, -4) . '.zip';
+		$zipInfo = $this->wire()->files->zip($zip, $file);
+		if(!empty($zipInfo['errors']) || !is_file($zip)) {
+			foreach($zipInfo['errors'] as $error) $this->error($error);
+			$this->error(sprintf($this->_('Failed to create ZIP file: %s'), $file['zip']));
+			if(is_file($zip)) $this->unlink($zip);
+			return false;
+		} else {
+			$za = new \ZipArchive;
+			$res = $za->open($zip);
+			if($res === true) {
+				$za->setArchiveComment(json_encode($backupInfo));
+				$za->close();
+			}
+			$this->unlink($file);
+			$this->message($this->_('Saved new backup:') . " $zip");
+			return $zip;
+		}
 	}
 
 	/**
@@ -643,8 +734,26 @@ class ProcessDatabaseBackups extends Process {
 					'allowDrop' => true, 
 					'maxSeconds' => 3600
 				);
-				if($input->post('restore_drop')) $options['dropAll'] = true; 
-				$success = $this->backup->restore($file['basename'], $options); 
+				if($input->post('restore_drop')) $options['dropAll'] = true;
+
+				// RPS mod
+				// If ZIP features are enabled and file is a ZIP file, extract then restore
+				if($this->enableZipFeatures && substr($file['pathname'], -4) === '.zip') {
+					$success = false;
+					$za = new \ZipArchive;
+					$res = $za->open($file['pathname']);
+					if($res === true) {
+						$backupInfo = json_decode($za->getArchiveComment(), true);
+						if(is_array($backupInfo)) {
+							$za->extractTo($this->backupPath());
+							$success = $this->backup->restore($backupInfo['basename'], $options);
+							if(is_file($backupInfo['pathname'])) $this->unlink($backupInfo['pathname']);
+						}
+						$za->close();
+					}
+				} else {
+					$success = $this->backup->restore($file['basename'], $options);
+				}
 				if($success) {
 					$this->message(sprintf($this->_('Restored: %s'), "$file[basename]")); 
 					$session->redirect($page->url); 
@@ -785,6 +894,22 @@ class ProcessDatabaseBackups extends Process {
 		$path = $this->backupPath(true);
 		$this->warning("Please note that the backup files in $path remain. If you don’t want them there, please remove them manually.");
 		parent::___uninstall();
+	}
+
+	/**
+	 * Config inputfields
+	 *
+	 * @param InputfieldWrapper $inputfields
+	 */
+	public function getModuleConfigInputfields($inputfields) {
+		/** @var InputfieldCheckbox $f */
+		$f = $this->wire()->modules->get('InputfieldCheckbox');
+		$f_name = 'enableZipFeatures';
+		$f->name = $f_name;
+		$f->label = $this->_('Enable ZIP features');
+		$f->label2 = $this->_('Backup to and restore from ZIP files');
+		$f->checked = $this->$f_name === 1 ? 'checked' : '';
+		$inputfields->add($f);
 	}
 
 }
