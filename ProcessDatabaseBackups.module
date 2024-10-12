@@ -354,8 +354,12 @@ class ProcessDatabaseBackups extends Process implements ConfigurableModule {
 		$f->name = 'upload_file';
 		$f->label = $this->_('Upload File'); 
 		$f->extensions = 'sql';
+		if($this->enableZipFeatures) {
+			$f->extensions .= ',zip';
+		} else {
+			$f->unzip = 1;
+		}
 		$f->maxFiles = 0;
-		$f->unzip = 1; 
 		$f->overwrite = false;
 		$f->destinationPath = $this->backupPath();
 		if(method_exists($f, 'setMaxFilesize')) $f->setMaxFilesize('100g');
