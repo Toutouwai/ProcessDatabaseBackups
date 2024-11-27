@@ -227,10 +227,11 @@ class ProcessDatabaseBackups extends Process implements ConfigurableModule {
 			foreach($backupFiles as $id => $file) {
 				if(substr($file['pathname'], -4) !== '.zip') continue;
 				$backupInfo = $this->getZipInfo($file['pathname']);
-				if(is_array($backupInfo)) {
-					$backupFiles[$id]['tables'] = $backupInfo['tables'];
-					$backupFiles[$id]['numInserts'] = $backupInfo['numInserts'];
-					$backupFiles[$id]['numTables'] = $backupInfo['numTables'];
+				if(!is_array($backupInfo)) continue;
+				$skipKeys = ['size', 'basename', 'pathname'];
+				foreach($backupInfo as $key => $value) {
+					if(in_array($key, $skipKeys)) continue;
+					$backupFiles[$id][$key] = $value;
 				}
 			}
 		}
@@ -815,7 +816,8 @@ class ProcessDatabaseBackups extends Process implements ConfigurableModule {
 	 * 
 	 */
 	protected function tdSort($unformatted, $formatted) {
-		return "<span style='display:none;'>$unformatted</span>" . $this->nowrap($formatted);
+		// RPS mod: add space after $unformatted to fix column sorting
+		return "<span style='display:none;'>$unformatted </span>" . $this->nowrap($formatted);
 	}
 
 	/**

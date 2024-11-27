@@ -3,7 +3,7 @@
 $info = array(
 	"title" => __('Database Backups: RPS mod', __FILE__),
 	"summary" => __('Create and/or restore database backups from ProcessWire admin.', __FILE__),
-	"version" => '0.1.6', // RPS version as middle number,
+	"version" => '0.2.6', // RPS version as middle number,
 	"author" => "Ryan Cramer",
 	"icon" => "database", 
 	"requires" => "ProcessWire>=3.0.62", 
