@@ -611,7 +611,7 @@ class ProcessDatabaseBackups extends Process implements ConfigurableModule {
 		$zipInfo = $this->wire()->files->zip($zip, $file);
 		if(!empty($zipInfo['errors']) || !is_file($zip)) {
 			foreach($zipInfo['errors'] as $error) $this->error($error);
-			$this->error(sprintf($this->_('Failed to create ZIP file: %s'), $file['zip']));
+			$this->error(sprintf($this->_('Failed to create ZIP file: %s'), $zip));
 			if(is_file($zip)) $this->unlink($zip);
 			return false;
 		} else {
