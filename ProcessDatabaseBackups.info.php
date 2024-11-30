@@ -5,6 +5,7 @@ $info = array(
 	"summary" => __('Create and/or restore database backups from ProcessWire admin.', __FILE__),
 	"version" => '0.2.6', // RPS version as middle number,
 	"author" => "Ryan Cramer",
+	"href" => 'https://github.com/Toutouwai/ProcessDatabaseBackups', // RPS mod
 	"icon" => "database", 
 	"requires" => "ProcessWire>=3.0.62", 
 	"permission" => "db-backup",
